@@ -1,0 +1,11 @@
+Package: oocert
+Version: 0.2.0-1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Depends: libc6
+Description: Sovereign CERTIFICATE STORE
+ Manages local system trust roots under /etc/ssl/certs/ with revocation checking.
+ Pure openOODA utility with zero ambient authority, terminal ergonomics,
+ and native Model Context Protocol (MCP) server.

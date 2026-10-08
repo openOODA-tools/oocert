@@ -1,0 +1,77 @@
+// # oocert Command-Line Options Parser
+//
+// Logline: Command-line flag tokenizer and configuration builder for certificate actions.
+//
+// Setup: Parses arguments vector into structured execution parameters.
+//
+// Beats:
+//   1. Declare CertOpts structure with action and format flags.
+//   2. Iterate command arguments and assign operation modes.
+//   3. Handle trust store scan and security audit flags.
+//   4. Provide default execution parameters.
+
+pub type CertOpts = struct {
+    action: String,
+    target_path: String,
+    to_format: String,
+    json_mode: Bool,
+    mcp_mode: Bool,
+    demo_mode: Bool,
+    help_mode: Bool,
+    version_mode: Bool
+};
+
+pub fn default_cert_opts() -> CertOpts {
+    return CertOpts {
+        action: "store",
+        target_path: "",
+        to_format: "",
+        json_mode: false,
+        mcp_mode: false,
+        demo_mode: false,
+        help_mode: false,
+        version_mode: false
+    };
+}
+
+pub fn parse_cert_opts(args: List[String]) -> CertOpts {
+    let mut opts: CertOpts = default_cert_opts();
+    let num_args: Int = list_len(args);
+    let mut i: Int = 0;
+
+    while i < num_args {
+        let arg: String = list_get(args, i);
+        if arg == "-h" || arg == "--help" {
+            opts.help_mode = true;
+        } else if arg == "-v" || arg == "--version" {
+            opts.version_mode = true;
+        } else if arg == "--mcp" {
+            opts.mcp_mode = true;
+        } else if arg == "--json" {
+            opts.json_mode = true;
+        } else if arg == "--demo" {
+            opts.demo_mode = true;
+        } else if arg == "-i" || arg == "--inspect" {
+            opts.action = "inspect";
+        } else if arg == "-a" || arg == "--audit" {
+            opts.action = "audit";
+        } else if arg == "-s" || arg == "--store" {
+            opts.action = "store";
+            if i + 1 < num_args && !str_starts_with(list_get(args, i + 1), "-") {
+                i = i + 1;
+                opts.target_path = list_get(args, i);
+            }
+        } else if arg == "-f" || arg == "--fingerprint" {
+            opts.action = "fingerprint";
+        } else if (arg == "-t" || arg == "--to") && (i + 1 < num_args) {
+            i = i + 1;
+            opts.to_format = list_get(args, i);
+        } else if !str_starts_with(arg, "-") && chars_len(opts.target_path) == 0 {
+            opts.target_path = arg;
+            opts.action = "inspect";
+        }
+        i = i + 1;
+    }
+
+    return opts;
+}

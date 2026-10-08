@@ -1,0 +1,25 @@
+// # oocert Core Module Anchor
+//
+// Logline: Integrates X.509 certificate decoding, trust store scanners, and security auditors.
+//
+// Setup: Bridges certificate parsing pipelines for CLI and MCP consumption.
+//
+// Beats:
+//   1. Expose certificate model types and structures.
+//   2. Expose PEM parsers and X.509 decoders.
+//   3. Expose trust store scanning and audit routines.
+//   4. Provide core subsystem verification predicate.
+
+import "core/cert_types.oo";
+import "core/pem_parser.oo";
+import "core/cert_decode.oo";
+import "core/store_scan.oo";
+
+pub fn verify_core_subsystem(fs: &FsReadCap) -> Bool {
+    let dummy_pem: String = "-----BEGIN CERTIFICATE-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0\n-----END CERTIFICATE-----";
+    let cert: X509Cert = parse_x509_pem(dummy_pem);
+    let store: CertStore = scan_trust_store(fs, "");
+    let findings: List[CertAuditItem] = audit_cert_store(store);
+
+    return (chars_len(cert.subject) > 0) && (store.total_certs > 0) && (list_len(findings) > 0);
+}

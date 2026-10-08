@@ -1,0 +1,132 @@
+// # PEM Certificate and Base64 Parser
+//
+// Logline: Extracts Base64 payloads and delimiters from PEM certificate blocks.
+//
+// Setup: Decodes RFC 7468 PEM encapsulations into raw byte sequences.
+//
+// Beats:
+//   1. Identify PEM header and footer boundary markers.
+//   2. Extract and sanitize Base64 text streams.
+//   3. Convert Base64 ASCII characters into raw byte integer arrays.
+//   4. Convert byte sequences into hexadecimal representations.
+
+pub fn is_pem_boundary(line: String) -> Bool {
+    let trimmed: String = str_trim(line);
+    if str_starts_with(trimmed, "-----BEGIN CERTIFICATE-----") { return true; }
+    if str_starts_with(trimmed, "-----END CERTIFICATE-----") { return true; }
+    if str_starts_with(trimmed, "-----BEGIN TRUSTED CERTIFICATE-----") { return true; }
+    if str_starts_with(trimmed, "-----END TRUSTED CERTIFICATE-----") { return true; }
+    return false;
+}
+
+pub fn b64_char_to_val(ch: String) -> Int {
+    let alphabet: String = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut i: Int = 0;
+    while i < 64 {
+        if str_slice(alphabet, i, i + 1) == ch {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+pub fn b64_decode_bytes(b64_str: String) -> List[Int] {
+    let mut sanitized: String = "";
+    let n: Int = chars_len(b64_str);
+    let mut i: Int = 0;
+    while i < n {
+        let ch: String = str_slice(b64_str, i, i + 1);
+        let b: Int = byte_at(b64_str, i);
+        let is_alphanumeric: Bool = (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57);
+        if is_alphanumeric || ch == "+" || ch == "/" || ch == "=" {
+            sanitized = sanitized + ch;
+        }
+        i = i + 1;
+    }
+
+    let mut out: List[Int] = bytes_new();
+    let slen: Int = chars_len(sanitized);
+    let mut p: Int = 0;
+
+    while p + 3 < slen {
+        let c0: String = str_slice(sanitized, p, p + 1);
+        let c1: String = str_slice(sanitized, p + 1, p + 2);
+        let c2: String = str_slice(sanitized, p + 2, p + 3);
+        let c3: String = str_slice(sanitized, p + 3, p + 4);
+
+        let v0: Int = b64_char_to_val(c0);
+        let v1: Int = b64_char_to_val(c1);
+        let v2: Int = b64_char_to_val(c2);
+        let v3: Int = b64_char_to_val(c3);
+
+        let b0: Int = ((v0 & 63) * 4) + ((v1 / 16) & 3);
+        out = bytes_push(out, b0 & 255);
+
+        if c2 != "=" {
+            let b1: Int = (((v1 & 15) * 16) + ((v2 / 4) & 15)) & 255;
+            out = bytes_push(out, b1);
+        }
+        if c3 != "=" && c2 != "=" {
+            let b2: Int = (((v2 & 3) * 64) + (v3 & 63)) & 255;
+            out = bytes_push(out, b2);
+        }
+        p = p + 4;
+    }
+
+    return out;
+}
+
+pub fn bytes_to_hex_str(bytes: List[Int]) -> String {
+    let hex: String = "0123456789abcdef";
+    let len: Int = list_len(bytes);
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < len {
+        let b: Int = list_get(bytes, i);
+        let hi: Int = (b / 16) & 15;
+        let lo: Int = b & 15;
+        out = out + str_slice(hex, hi, hi + 1) + str_slice(hex, lo, lo + 1);
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn extract_first_pem_payload(pem_text: String) -> String {
+    let start_tag: String = "-----BEGIN CERTIFICATE-----";
+    let end_tag: String = "-----END CERTIFICATE-----";
+    let alt_start: String = "-----BEGIN TRUSTED CERTIFICATE-----";
+    let alt_end: String = "-----END TRUSTED CERTIFICATE-----";
+
+    let n: Int = chars_len(pem_text);
+    let mut s_idx: Int = -1;
+    let mut e_idx: Int = -1;
+    let mut tag_len: Int = chars_len(start_tag);
+
+    let mut i: Int = 0;
+    while i + chars_len(start_tag) <= n && s_idx < 0 {
+        if str_slice(pem_text, i, i + chars_len(start_tag)) == start_tag {
+            s_idx = i + chars_len(start_tag);
+            tag_len = chars_len(start_tag);
+        } else if i + chars_len(alt_start) <= n && str_slice(pem_text, i, i + chars_len(alt_start)) == alt_start {
+            s_idx = i + chars_len(alt_start);
+            tag_len = chars_len(alt_start);
+        }
+        i = i + 1;
+    }
+
+    if s_idx < 0 { return ""; }
+
+    let mut j: Int = s_idx;
+    while j + chars_len(end_tag) <= n && e_idx < 0 {
+        if str_slice(pem_text, j, j + chars_len(end_tag)) == end_tag {
+            e_idx = j;
+        } else if j + chars_len(alt_end) <= n && str_slice(pem_text, j, j + chars_len(alt_end)) == alt_end {
+            e_idx = j;
+        }
+        j = j + 1;
+    }
+
+    if e_idx < 0 { return ""; }
+    return str_slice(pem_text, s_idx, e_idx);
+}

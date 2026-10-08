@@ -1,0 +1,104 @@
+// # X.509 Certificate Models and Trust Store Types
+//
+// Logline: Data structures for X.509 certificates, trust store states, and security audits.
+//
+// Setup: Encapsulates parsed certificate metadata, cryptographic parameters, and audit items.
+//
+// Beats:
+//   1. Declare X509Cert structure with subject, issuer, validity, and fingerprint fields.
+//   2. Declare CertStore structure summarizing system trust roots.
+//   3. Declare CertAuditItem structure reporting security findings and severity.
+//   4. Provide constructor helpers for typed models.
+
+pub type X509Cert = struct {
+    subject: String,
+    issuer: String,
+    serial: String,
+    not_before: String,
+    not_after: String,
+    sig_algo: String,
+    key_algo: String,
+    fingerprint_sha256: String,
+    fingerprint_sha1: String,
+    status: String,
+    is_ca: Bool,
+    pem_raw: String
+};
+
+pub type CertStore = struct {
+    store_path: String,
+    total_certs: Int,
+    valid_count: Int,
+    expired_count: Int,
+    warning_count: Int,
+    certs: List[X509Cert]
+};
+
+pub type CertAuditItem = struct {
+    cert_name: String,
+    severity: String,
+    finding: String,
+    recommendation: String
+};
+
+pub fn make_x509_cert(
+    sub: String,
+    iss: String,
+    ser: String,
+    nb: String,
+    na: String,
+    sig: String,
+    key: String,
+    fp256: String,
+    fp1: String,
+    stat: String,
+    ca: Bool,
+    raw: String
+) -> X509Cert {
+    return X509Cert {
+        subject: sub,
+        issuer: iss,
+        serial: ser,
+        not_before: nb,
+        not_after: na,
+        sig_algo: sig,
+        key_algo: key,
+        fingerprint_sha256: fp256,
+        fingerprint_sha1: fp1,
+        status: stat,
+        is_ca: ca,
+        pem_raw: raw
+    };
+}
+
+pub fn make_cert_store(
+    path: String,
+    total: Int,
+    valid: Int,
+    expired: Int,
+    warn: Int,
+    certs: List[X509Cert]
+) -> CertStore {
+    return CertStore {
+        store_path: path,
+        total_certs: total,
+        valid_count: valid,
+        expired_count: expired,
+        warning_count: warn,
+        certs: certs
+    };
+}
+
+pub fn make_cert_audit_item(
+    name: String,
+    sev: String,
+    find: String,
+    recom: String
+) -> CertAuditItem {
+    return CertAuditItem {
+        cert_name: name,
+        severity: sev,
+        finding: find,
+        recommendation: recom
+    };
+}

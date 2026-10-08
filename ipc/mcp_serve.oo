@@ -1,0 +1,160 @@
+// # oocert Model Context Protocol (MCP) Server
+//
+// Logline: JSON-RPC 2.0 stdio server providing certificate inspection, verification, and audit tools.
+//
+// Setup: Zero-leakage capability-bounded request router over standard input/output.
+//
+// Beats:
+//   1. Handle MCP initialize and protocol version negotiation.
+//   2. Advertise cert_inspect, cert_verify, cert_store_list, cert_audit, and cert_fingerprint tools.
+//   3. Dispatch tools/call requests and format JSON-RPC responses.
+//   4. Process streaming stdio request loop.
+
+import "core/cert_types.oo";
+import "core/pem_parser.oo";
+import "core/cert_decode.oo";
+import "core/store_scan.oo";
+import "render/cert_theme.oo";
+import "ipc/json_field.oo";
+
+pub fn mcp_tools_list(id_val: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"tools\":["
+        + "{\"name\":\"cert_inspect\",\"description\":\"Inspect X.509 certificate subject, issuer, validity, and parameters.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"cert\":{\"type\":\"string\"}},\"required\":[\"cert\"]}},"
+        + "{\"name\":\"cert_verify\",\"description\":\"Verify expiration and trust validity of an X.509 certificate.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"cert\":{\"type\":\"string\"}},\"required\":[\"cert\"]}},"
+        + "{\"name\":\"cert_store_list\",\"description\":\"List installed root CA certificates from system trust store.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}},"
+        + "{\"name\":\"cert_audit\",\"description\":\"Audit trust store certificates for expired roots and weak algorithms.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}},"
+        + "{\"name\":\"cert_fingerprint\",\"description\":\"Compute SHA-256 fingerprint of a PEM certificate.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"cert\":{\"type\":\"string\"}},\"required\":[\"cert\"]}}"
+        + "]}}\n";
+}
+
+pub fn handle_inspect(id_val: String, args: String, fs: &FsReadCap) -> String {
+    let raw_input: String = json_get_string(args, "cert");
+    let mut pem: String = "";
+    if str_starts_with(raw_input, "-----BEGIN") || chars_len(raw_input) == 0 {
+        pem = raw_input;
+    } else {
+        let f_res: Result[String, String] = read_file(fs, raw_input);
+        pem = match f_res { Ok(s) => s, Err(_) => "" };
+    }
+    let cert: X509Cert = parse_x509_pem(pem);
+    let card: String = render_cert_panel(cert);
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape_string(card) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_verify(id_val: String, args: String, fs: &FsReadCap) -> String {
+    let raw_input: String = json_get_string(args, "cert");
+    let mut pem: String = "";
+    if str_starts_with(raw_input, "-----BEGIN") || chars_len(raw_input) == 0 {
+        pem = raw_input;
+    } else {
+        let f_res: Result[String, String] = read_file(fs, raw_input);
+        pem = match f_res { Ok(s) => s, Err(_) => "" };
+    }
+    let cert: X509Cert = parse_x509_pem(pem);
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + "Status: " + cert.status + "\\n"
+        + "Subject: " + json_escape_string(cert.subject) + "\\n"
+        + "Issuer: " + json_escape_string(cert.issuer) + "\\n"
+        + "Not After: " + cert.not_after + "\\n"
+        + "Is CA: " + to_string(cert.is_ca) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_store_list(id_val: String, args: String, fs: &FsReadCap) -> String {
+    let path: String = json_get_string(args, "path");
+    let store: CertStore = scan_trust_store(fs, path);
+    let findings: List[CertAuditItem] = audit_cert_store(store);
+    let panel: String = render_store_panel(store, findings);
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape_string(panel) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_audit(id_val: String, args: String, fs: &FsReadCap) -> String {
+    let path: String = json_get_string(args, "path");
+    let store: CertStore = scan_trust_store(fs, path);
+    let findings: List[CertAuditItem] = audit_cert_store(store);
+
+    let mut out: String = "Trust Store Security Audit (" + to_string(list_len(findings)) + " findings):\n";
+    let n: Int = list_len(findings);
+    let mut i: Int = 0;
+    while i < n {
+        let it: CertAuditItem = list_get(findings, i);
+        out = out + "[" + it.severity + "] " + it.cert_name + "\n";
+        out = out + "  Finding: " + it.finding + "\n";
+        out = out + "  Fix:     " + it.recommendation + "\n";
+        i = i + 1;
+    }
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + json_escape_string(out) + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_fingerprint(id_val: String, args: String) -> String {
+    let raw_input: String = json_get_string(args, "cert");
+    let b64: String = extract_first_pem_payload(raw_input);
+    let bytes: List[Int] = b64_decode_bytes(b64);
+    let fp: String = compute_sha256_fingerprint(bytes);
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id_val + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""
+        + "SHA-256 Fingerprint: " + fp + "\""
+        + "}]}}\n";
+}
+
+pub fn handle_mcp_line(line: String, fs: &FsReadCap) -> String {
+    let trimmed: String = str_trim(line);
+    if chars_len(trimmed) == 0 { return ""; }
+
+    let id_val: String = json_get_field(trimmed, "id");
+    let mut eff_id: String = "null";
+    if chars_len(id_val) > 0 { eff_id = id_val; }
+
+    let method: String = json_get_string(trimmed, "method");
+    if method == "initialize" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + eff_id + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oocert\",\"version\":\"0.2.0\"}}}\n";
+    }
+    if method == "tools/list" {
+        return mcp_tools_list(eff_id);
+    }
+    if method == "tools/call" {
+        let params: String = json_get_field(trimmed, "params");
+        let name: String = json_get_string(params, "name");
+        let args: String = json_get_field(params, "arguments");
+
+        if name == "cert_inspect" { return handle_inspect(eff_id, args, fs); }
+        if name == "cert_verify" { return handle_verify(eff_id, args, fs); }
+        if name == "cert_store_list" { return handle_store_list(eff_id, args, fs); }
+        if name == "cert_audit" { return handle_audit(eff_id, args, fs); }
+        if name == "cert_fingerprint" { return handle_fingerprint(eff_id, args); }
+
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + eff_id + ",\"error\":{\"code\":-32601,\"message\":\"Unknown tool\"}}\n";
+    }
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + eff_id + ",\"result\":{}}\n";
+}
+
+pub fn run_mcp_server(fs: &FsReadCap) {
+    let mut running: Bool = true;
+    while running {
+        let line_res: Result[String, String] = oo_read_stdin_chunk(fs, 8192);
+        if !line_res.is_ok() {
+            running = false;
+        } else {
+            let line: String = match line_res { Ok(s) => s, Err(_) => "" };
+            let trimmed: String = str_trim(line);
+            if chars_len(trimmed) == 0 {
+                running = false;
+            } else {
+                let resp: String = handle_mcp_line(trimmed, fs);
+                if chars_len(resp) > 0 {
+                    print(resp);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,121 @@
+// # Certificate Theme and Visual Panel Renderer
+//
+// Logline: Renders certificate inspection cards, trust store inventories, and JSON telemetry.
+//
+// Setup: Bridges terminal formatting with oote themes and structured output envelopes.
+//
+// Beats:
+//   1. Define ANSI styling tokens and header banners.
+//   2. Format single certificate inspection panel with subject, validity, and fingerprint.
+//   3. Format trust store summary cards and security audit findings tables.
+//   4. Serialize certificate models into standard JSON representations.
+
+import "core/cert_types.oo";
+
+fn esc() -> String {
+    return bytes_to_str(bytes_push(bytes_new(), 27));
+}
+
+pub fn render_ansi_header() -> String {
+    let e: String = esc();
+    let bold: String = e + "[1m";
+    let cyan: String = e + "[38;5;51m";
+    let reset: String = e + "[0m";
+    return cyan + bold + "=== oocert: Sovereign CERTIFICATE STORE ===" + reset + "\n";
+}
+
+pub fn render_cert_panel(cert: X509Cert) -> String {
+    let e: String = esc();
+    let bold: String = e + "[1m";
+    let green: String = e + "[38;5;82m";
+    let yellow: String = e + "[38;5;220m";
+    let red: String = e + "[38;5;196m";
+    let dim: String = e + "[38;5;242m";
+    let reset: String = e + "[0m";
+
+    let stat_color: String = if cert.status == "VALID" { green } else { red };
+
+    let mut out: String = render_ansi_header();
+    out = out + dim + "------------------------------------------------------------" + reset + "\n";
+    out = out + bold + "Subject:       " + reset + cert.subject + "\n";
+    out = out + bold + "Issuer:        " + reset + cert.issuer + "\n";
+    out = out + bold + "Serial:        " + reset + dim + cert.serial + reset + "\n";
+    out = out + bold + "Validity:      " + reset + cert.not_before + " -> " + cert.not_after + "\n";
+    out = out + bold + "Signature:     " + reset + cert.sig_algo + "\n";
+    out = out + bold + "Public Key:    " + reset + cert.key_algo + "\n";
+    out = out + bold + "SHA-256 Fingerprint:\n  " + reset + yellow + cert.fingerprint_sha256 + reset + "\n";
+    out = out + bold + "Status:        " + reset + stat_color + bold + "[" + cert.status + "]" + reset + "\n";
+    out = out + dim + "------------------------------------------------------------" + reset + "\n";
+    return out;
+}
+
+pub fn render_store_panel(store: CertStore, findings: List[CertAuditItem]) -> String {
+    let e: String = esc();
+    let bold: String = e + "[1m";
+    let green: String = e + "[38;5;82m";
+    let yellow: String = e + "[38;5;220m";
+    let red: String = e + "[38;5;196m";
+    let dim: String = e + "[38;5;242m";
+    let reset: String = e + "[0m";
+
+    let mut out: String = render_ansi_header();
+    out = out + dim + "============================================================" + reset + "\n";
+    out = out + bold + "Trust Store Path: " + reset + store.store_path + "\n";
+    out = out + bold + "Total CA Roots:   " + reset + to_string(store.total_certs) + "\n";
+    out = out + bold + "Valid Roots:      " + green + to_string(store.valid_count) + reset + "\n";
+    out = out + bold + "Expired Roots:    " + red + to_string(store.expired_count) + reset + "\n";
+    out = out + bold + "Audit Warnings:   " + yellow + to_string(store.warning_count) + reset + "\n";
+    out = out + dim + "------------------------------------------------------------" + reset + "\n";
+    out = out + bold + "Security Audit Findings (" + to_string(list_len(findings)) + "):" + reset + "\n";
+
+    let n: Int = list_len(findings);
+    let mut i: Int = 0;
+    while i < n {
+        let it: CertAuditItem = list_get(findings, i);
+        let sev_color: String = if it.severity == "CRITICAL" { red } else if it.severity == "WARN" { yellow } else { green };
+        out = out + "  [" + sev_color + bold + it.severity + reset + "] " + it.cert_name + "\n";
+        out = out + "    " + dim + "Issue: " + reset + it.finding + "\n";
+        out = out + "    " + dim + "Fix:   " + reset + it.recommendation + "\n";
+        i = i + 1;
+    }
+    out = out + dim + "============================================================" + reset + "\n";
+    return out;
+}
+
+pub fn render_cert_json(cert: X509Cert) -> String {
+    return "{\"status\":\"ok\",\"tool\":\"oocert\","
+        + "\"subject\":\"" + cert.subject + "\","
+        + "\"issuer\":\"" + cert.issuer + "\","
+        + "\"serial\":\"" + cert.serial + "\","
+        + "\"not_before\":\"" + cert.not_before + "\","
+        + "\"not_after\":\"" + cert.not_after + "\","
+        + "\"sig_algo\":\"" + cert.sig_algo + "\","
+        + "\"key_algo\":\"" + cert.key_algo + "\","
+        + "\"fingerprint_sha256\":\"" + cert.fingerprint_sha256 + "\","
+        + "\"cert_status\":\"" + cert.status + "\","
+        + "\"is_ca\":" + to_string(cert.is_ca) + "}\n";
+}
+
+pub fn render_store_json(store: CertStore, findings: List[CertAuditItem]) -> String {
+    let mut arr: String = "[";
+    let fn_count: Int = list_len(findings);
+    let mut i: Int = 0;
+    while i < fn_count {
+        let it: CertAuditItem = list_get(findings, i);
+        if i > 0 { arr = arr + ","; }
+        arr = arr + "{\"cert\":\"" + it.cert_name + "\","
+            + "\"severity\":\"" + it.severity + "\","
+            + "\"finding\":\"" + it.finding + "\","
+            + "\"recommendation\":\"" + it.recommendation + "\"}";
+        i = i + 1;
+    }
+    arr = arr + "]";
+
+    return "{\"status\":\"ok\",\"tool\":\"oocert\","
+        + "\"store_path\":\"" + store.store_path + "\","
+        + "\"total_certs\":" + to_string(store.total_certs) + ","
+        + "\"valid_count\":" + to_string(store.valid_count) + ","
+        + "\"expired_count\":" + to_string(store.expired_count) + ","
+        + "\"warning_count\":" + to_string(store.warning_count) + ","
+        + "\"findings\":" + arr + "}\n";
+}

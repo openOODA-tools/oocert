@@ -1,0 +1,23 @@
+// # oocert Render Module Anchor
+//
+// Logline: Integrates terminal card formatters and JSON telemetry serializes.
+//
+// Setup: Bridges render pipeline routines for userland display.
+//
+// Beats:
+//   1. Expose certificate card and store panel formatters.
+//   2. Expose structured JSON serializer routines.
+//   3. Provide render subsystem verification predicate.
+
+import "core/cert_types.oo";
+import "render/cert_theme.oo";
+
+pub fn verify_render_subsystem() -> Bool {
+    let cert: X509Cert = make_x509_cert(
+        "CN=Test", "CN=Test", "01", "2025", "2026", "sha256", "rsa", "aa:bb", "aa:bb", "VALID", true, ""
+    );
+    let card: String = render_cert_panel(cert);
+    let json_text: String = render_cert_json(cert);
+
+    return (chars_len(card) > 0) && (chars_len(json_text) > 0);
+}

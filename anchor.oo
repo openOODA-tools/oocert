@@ -1,13 +1,23 @@
 // # oocert Root Anchor
 //
-// Logline: Top-level anchor re-exporting options, core logic, render, and ipc subsystems.
+// Logline: Top-level anchor uniting core, render, and ipc subsystems for oocert.
 //
-// Setup: Pure shim re-exporting all oocert subsystem anchors.
+// Setup: Bridges certificate management engine for CLI and MCP consumption.
 //
 // Beats:
-//   1. Re-export options parsing subsystem.
-//   2. Re-export core oocert execution engine.
-//   3. Re-export render formatting subsystem.
-//   4. Re-export Model Context Protocol (MCP) IPC subsystem.
+//   1. Re-export core certificate decoder and trust store scanner.
+//   2. Re-export visual theme and card renderer subsystem.
+//   3. Re-export Model Context Protocol (MCP) IPC subsystem.
+//   4. Provide root system verification predicate.
 
-import "main.oo";
+import "core/anchor.oo";
+import "render/anchor.oo";
+import "ipc/anchor.oo";
+
+pub fn verify_oocert_system(fs: &FsReadCap) -> Bool {
+    let core_ok: Bool = verify_core_subsystem(fs);
+    let render_ok: Bool = verify_render_subsystem();
+    let ipc_ok: Bool = verify_ipc_subsystem();
+
+    return core_ok && render_ok && ipc_ok;
+}

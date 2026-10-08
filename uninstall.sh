@@ -4,7 +4,7 @@
 # "Removes oocert binary, package installations, and cache."
 #
 # Usage:
-#   curl -fsSL https://openooda-toocert.github.io/oocert/uninstall.sh | bash
+#   curl -fsSL https://openooda-tools.github.io/oocert/uninstall.sh | bash
 #   or: ./uninstall.sh [options]
 #
 # Options:

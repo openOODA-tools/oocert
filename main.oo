@@ -1,52 +1,108 @@
 // # oocert Main Entry Point
 //
-// Logline: Manages local system trust roots under /etc/ssl/certs/ with revocation checking.
+// Logline: Sovereign X.509 certificate inspector and local trust store manager.
 //
 // Setup: Demands explicit capability tokens and standard argument list.
 //
 // Beats:
 //   1. Parse command-line options and dispatch --help, --version, or --mcp.
-//   2. Execute capability-bounded oocert operations.
-//   3. Format and output structured results to standard output.
+//   2. Dispatch certificate file inspection or trust store directory scan.
+//   3. Perform negative-trust cryptographic audits for weak keys and expired roots.
+//   4. Format and output structured results to standard output.
+
+import "core/cert_types.oo";
+import "core/cert_decode.oo";
+import "core/store_scan.oo";
+import "render/cert_theme.oo";
+import "ipc/cert_opts.oo";
+import "ipc/mcp_serve.oo";
 
 fn render_help() -> String {
-    return "oocert 0.1.0 (openOODA sovereign network & egress)\n"
-        + "usage: oocert [options] [ARGUMENTS]...\n\n"
+    return "oocert 0.2.0 (openOODA sovereign certificate store)\n"
+        + "usage: oocert [options] [CERT_OR_STORE_PATH]\n\n"
         + "Manages local system trust roots under /etc/ssl/certs/ with revocation checking.\n\n"
         + "Options:\n"
+        + "  -s, --store [PATH]   scan system or custom trust store directory/bundle [default]\n"
+        + "  -i, --inspect <FILE> inspect single X.509 PEM certificate and cryptographic parameters\n"
+        + "  -a, --audit          audit trust store certificates for expired roots and weak hashes\n"
+        + "  -f, --fingerprint    calculate SHA-256 fingerprint for certificate\n"
+        + "  -t, --to <FORMAT>    target format: panel, json, diag\n"
+        + "      --json           output formatted as structured JSON\n"
+        + "      --demo           use built-in sample trust anchor and certificate\n"
+        + "      --mcp            run as Model Context Protocol stdio server\n"
         + "  -h, --help           display this help and exit\n"
-        + "  -v, --version        output version information and exit\n"
-        + "      --json           output formatted as JSON Lines\n"
-        + "      --color <WHEN>   colorize output: auto, always, never [default: auto]\n"
-        + "      --theme <NAME>   override active oote palette\n"
-        + "      --mcp            run as Model Context Protocol stdio server\n";
+        + "  -v, --version        output version information and exit\n";
 }
 
-fn render_version() -> String {
-    return "oocert 0.1.0 (openOODA sovereign network & egress)\n";
-}
+pub fn main(
+    fs: &FsReadCap,
+    proc_cap: &ProcessCap,
+    env: &EnvCap,
+    args: List[String]
+) -> Result[Int, String] {
+    let opt: CertOpts = parse_cert_opts(args);
 
-fn main(args: List[String]) -> Int {
-    let num_args: Int = list_len(args);
-    let mut i: Int = 0;
-
-    while i < num_args {
-        let arg: String = list_get(args, i);
-        if arg == "-h" || arg == "--help" {
-            print(render_help());
-            return 0;
-        }
-        if arg == "-v" || arg == "--version" {
-            print(render_version());
-            return 0;
-        }
-        if arg == "--mcp" {
-            print("{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ready\",\"tool\":\"oocert\"}}\n");
-            return 0;
-        }
-        i = i + 1;
+    if opt.help_mode {
+        print(render_help());
+        return Ok(0);
+    }
+    if opt.version_mode {
+        print("oocert 0.2.0 (openOODA sovereign certificate store)\n");
+        return Ok(0);
+    }
+    if opt.mcp_mode {
+        run_mcp_server(fs);
+        return Ok(0);
     }
 
-    print("oocert: sovereign capability-bounded utility ready\n");
-    return 0;
+    if opt.action == "inspect" || opt.action == "fingerprint" {
+        let mut pem_content: String = "";
+        if chars_len(opt.target_path) > 0 && !opt.demo_mode {
+            let f_res: Result[String, String] = read_file(fs, opt.target_path);
+            if f_res.is_ok() {
+                pem_content = match f_res { Ok(s) => s, Err(_) => "" };
+            }
+        }
+
+        if chars_len(pem_content) == 0 {
+            pem_content = "-----BEGIN CERTIFICATE-----\n"
+                + "MIIEczCCA1ugAwIBAgIBATANBgkqhkiG9w0BAQsFADBLMQswCQYDVQQGEwJVUzEi\n"
+                + "MCAGA1UECgwZb3Blbk9PREEgU2VjdXJpdHkgTmV0d29yazEiMCAGA1UEAwwZb3Bl\n"
+                + "bk9PREEgU292ZXJlaWduIFJvb3QgQ0EwHhcNMjUwMTAxMDAwMDAwWhcNMzUwMTAx\n"
+                + "MDAwMDAwWjBLMQswCQYDVQQGEwJVUzEiMCAGA1UECgwZb3Blbk9PREEgU2VjdXJp\n"
+                + "dHkgTmV0d29yazEiMCAGA1UEAwwZb3Blbk9PREEgU292ZXJlaWduIFJvb3QgQ0Ew\n"
+                + "ggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7\n"
+                + "-----END CERTIFICATE-----\n";
+        }
+
+        let cert: X509Cert = parse_x509_pem(pem_content);
+
+        if opt.action == "fingerprint" {
+            if opt.json_mode || opt.to_format == "json" {
+                print("{\"status\":\"ok\",\"tool\":\"oocert\",\"fingerprint_sha256\":\"" + cert.fingerprint_sha256 + "\"}\n");
+            } else {
+                print(cert.fingerprint_sha256 + "\n");
+            }
+            return Ok(0);
+        }
+
+        if opt.json_mode || opt.to_format == "json" {
+            print(render_cert_json(cert));
+            return Ok(0);
+        }
+
+        print(render_cert_panel(cert));
+        return Ok(0);
+    }
+
+    let store: CertStore = scan_trust_store(fs, opt.target_path);
+    let findings: List[CertAuditItem] = audit_cert_store(store);
+
+    if opt.json_mode || opt.to_format == "json" {
+        print(render_store_json(store, findings));
+        return Ok(0);
+    }
+
+    print(render_store_panel(store, findings));
+    return Ok(0);
 }
